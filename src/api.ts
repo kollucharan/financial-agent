@@ -1,88 +1,109 @@
 import express from 'express';
-import cors from 'cors';
+import path from 'path';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { ChatAgent } from './agent/ChatAgent.js';
 import { AdvisorAgent } from './agent/AdvisorAgent.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { AnalyticsEngine } from './services/AnalyticsEngine.js';
+import 'dotenv/config';
 
 const app = express();
-app.use(cors()); // Enable CORS for frontend requests
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 app.use(express.json());
+app.use(express.static(path.join(__dirname, '../public')));
 
-const agents = new Map<string, { agent: AdvisorAgent; history: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>; currentPortfolioId: string | null }>();
+const sessions = new Map<string, ChatAgent>();
+const advisorAgent = new AdvisorAgent();
 
-function getPortfolioFromMessage(message: string): string | null {
-  const lower = message.toLowerCase();
-  if (lower.includes('diversified') || lower.includes('rahul') || lower.includes('portfolio 1')) {
-    return 'PORTFOLIO_001';
+function getSession(sessionId: string): ChatAgent {
+  if (!sessions.has(sessionId)) {
+    sessions.set(sessionId, new ChatAgent());
   }
-  if (lower.includes('banking') || lower.includes('priya') || lower.includes('portfolio 2')) {
-    return 'PORTFOLIO_002';
-  }
-  if (lower.includes('conservative') || lower.includes('arun') || lower.includes('portfolio 3')) {
-    return 'PORTFOLIO_003';
-  }
-  return null;
+  return sessions.get(sessionId)!;
 }
 
-app.post('/chat', async (req, res) => {
-  const { message, sessionId, history = [] } = req.body;
-
-  if (!message || !sessionId) {
-    return res.status(400).json({ error: 'Message and sessionId required' });
-  }
-
-  let session = agents.get(sessionId);
-  if (!session) {
-    session = {
-      agent: new AdvisorAgent(),
-      history: [],
-      currentPortfolioId: null
-    };
-    agents.set(sessionId, session);
-  }
-
-  // Update history
-  session.history = history;
-
-  // Check portfolio switch
-  const newPortfolioId = getPortfolioFromMessage(message);
-  if (newPortfolioId && newPortfolioId !== session.currentPortfolioId) {
-    session.currentPortfolioId = newPortfolioId;
-    session.history.push({ role: 'system', content: `Switched to portfolio ${newPortfolioId}` });
-  }
-
+app.get('/api/portfolios', (_req, res) => {
   try {
-    let response: string;
-    if (session.currentPortfolioId) {
-      response = await session.agent.chatWithUser(session.currentPortfolioId, message, session.history);
-    } else {
-      response = await session.agent.chatWithUser('PORTFOLIO_001', message, session.history);
-    }
+    const engine = new AnalyticsEngine();
+    const data = engine.getPortfoliosData();
 
-    // Update history
-    session.history.push({ role: 'user', content: message });
-    session.history.push({ role: 'assistant', content: response });
+    const portfolios = Object.entries(data.portfolios).map(([id, p]) => ({
+      id,
+      name: p.user_name,
+      type: p.portfolio_type,
+      value: p.current_value,
+      gainLossPercent: p.overall_gain_loss_percent,
+      riskProfile: p.risk_profile || 'MODERATE',
+      description: p.description || 'Portfolio snapshot'
+    }));
 
-    // Keep history manageable
-    if (session.history.length > 20) {
-      session.history.splice(0, 2);
-    }
-
-    res.json({
-      response,
-      portfolioId: session.currentPortfolioId,
-      history: session.history
-    });
+    res.json(portfolios);
   } catch (error) {
-    console.error('Chat error:', error);
-    res.status(500).json({ error: 'Failed to process message' });
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: message });
   }
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Backend API Server running at http://localhost:${PORT}`);
+app.get('/api/status', (_req, res) => {
+  const status = advisorAgent.getRuntimeStatus();
+  res.json({
+    api_configured: status.llm_configured,
+    tracing_enabled: status.tracing_enabled,
+    model: status.model
+  });
+});
+
+app.post('/api/chat', async (req, res) => {
+  const { message, portfolioId, sessionId = 'default' } = req.body as {
+    message?: string;
+    portfolioId?: string;
+    sessionId?: string;
+  };
+
+  if (!message || !portfolioId) {
+    return res.status(400).json({ error: 'message and portfolioId are required' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const agent = getSession(sessionId);
+
+  try {
+    await agent.chat(message, portfolioId, token => {
+      res.write(`data: ${JSON.stringify({ token })}\n\n`);
+    });
+
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
+  } finally {
+    res.end();
+  }
+});
+
+app.post('/api/chat/clear', (req, res) => {
+  const { sessionId = 'default' } = req.body as { sessionId?: string };
+  getSession(sessionId).clearHistory();
+  res.json({ ok: true });
+});
+
+app.get(/.*/, (_req, res) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+
+const PORT = process.env.PORT || 3000;
+const server = app.listen(PORT, () => {
+  console.log(`Artha Advisor running at http://localhost:${PORT}`);
+});
+
+server.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Stop the existing server or run with a different port.`);
+    return;
+  }
+  console.error('Server startup error:', error.message);
 });

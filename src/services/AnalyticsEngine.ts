@@ -17,21 +17,6 @@ import {
   type Index
 } from '../models/types.js';
 
-/**
- * AnalyticsEngine - Core reasoning and analysis layer
- *
- * Responsible for all data ingestion and analysis:
- * - Phase 1: Market Intelligence (sentiment, sector trends, news processing)
- * - Phase 2: Portfolio Analytics (P&L, risk detection, allocation)
- * - Phase 3: Causal Linking (connects news to portfolio impact)
- *
- * @example
- * const engine = new AnalyticsEngine();
- * const portfolio = engine.getPortfolio('PORTFOLIO_001');
- * const sentiment = engine.analyzeMarketSentiment();
- * const trends = engine.getSectorTrends();
- * const analysis = engine.analyzePortfolio(portfolio);
- */
 export class AnalyticsEngine {
   private dataPath: string;
 
@@ -42,7 +27,7 @@ export class AnalyticsEngine {
 
   private loadJson<T>(filename: string): T {
     const filePath = path.join(this.dataPath, filename);
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as T;
   }
 
   public getMarketData(): MarketData {
@@ -71,44 +56,55 @@ export class AnalyticsEngine {
   }
 
   public getNews(): NewsArticle[] {
-    const newsData = this.getNewsData();
-    return newsData.news;
+    return this.getNewsData().news;
   }
 
-  // Phase 1: Market Intelligence Layer
   public analyzeMarketSentiment(): MarketSentiment {
     const marketData = this.getMarketData();
     const indices: Index[] = Object.values(marketData.indices);
 
-    const avgChange = indices.reduce((sum, index) => sum + index.change_percent, 0) / indices.length;
+    if (indices.length === 0) {
+      return {
+        overall: 'NEUTRAL',
+        confidence: 0,
+        key_drivers: []
+      };
+    }
+
+    const avgChange =
+      indices.reduce((sum, index) => sum + (index.change_percent || 0), 0) / indices.length;
+
     const bearishCount = indices.filter(idx => idx.sentiment === 'BEARISH').length;
     const bullishCount = indices.filter(idx => idx.sentiment === 'BULLISH').length;
 
-    let overall: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
-    if (avgChange > 0.5 && bullishCount > bearishCount) {
+    let overall: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+
+    if (avgChange > 0.4 && bullishCount > bearishCount) {
       overall = 'BULLISH';
-    } else if (avgChange < -0.5 && bearishCount > bullishCount) {
+    } else if (avgChange < -0.4 && bearishCount > bullishCount) {
       overall = 'BEARISH';
-    } else {
-      overall = 'NEUTRAL';
     }
 
-    const confidence = Math.abs(avgChange) / 2; // Simple confidence based on magnitude
+    const confidence = Math.min(Math.abs(avgChange) / 2, 1);
 
     const keyDrivers = indices
-      .filter(idx => Math.abs(idx.change_percent) > 1)
-      .map(idx => `${idx.name}: ${idx.change_percent.toFixed(2)}%`);
+      .filter(idx => Math.abs(idx.change_percent || 0) > 1)
+      .map(idx => `${idx.name}: ${(idx.change_percent || 0).toFixed(2)}%`);
 
-    return { overall, confidence: Math.min(confidence, 1), key_drivers: keyDrivers };
+    return {
+      overall,
+      confidence,
+      key_drivers: keyDrivers
+    };
   }
 
   public getSectorTrends(): SectorTrend[] {
     const marketData = this.getMarketData();
     const newsData = this.getNewsData();
-    const sectorMapping = this.getSectorMapping();
 
     const sectorStocks = new Map<string, Stock[]>();
     const stocks: Stock[] = Object.values(marketData.stocks);
+
     stocks.forEach(stock => {
       if (!sectorStocks.has(stock.sector)) {
         sectorStocks.set(stock.sector, []);
@@ -124,11 +120,19 @@ export class AnalyticsEngine {
     });
 
     const trends: SectorTrend[] = [];
-    sectorStocks.forEach((stocks, sector) => {
-      const avgChange = stocks.reduce((sum, stock) => sum + stock.change_percent, 0) / stocks.length;
-      const sentiment = avgChange > 0.5 ? 'BULLISH' : avgChange < -0.5 ? 'BEARISH' : 'NEUTRAL';
-      const keyStocks = stocks
-        .sort((a, b) => Math.abs(b.change_percent) - Math.abs(a.change_percent))
+
+    sectorStocks.forEach((sectorStockList, sector) => {
+      const avgChange =
+        sectorStockList.reduce((sum, stock) => {
+          const stockChange = stock.change_percent ?? stock.day_change_percent ?? 0;
+          return sum + stockChange;
+        }, 0) / sectorStockList.length;
+
+      const sentiment =
+        avgChange > 0.5 ? 'BULLISH' : avgChange < -0.5 ? 'BEARISH' : 'NEUTRAL';
+
+      const keyStocks = [...sectorStockList]
+        .sort((a, b) => Math.abs((b.change_percent ?? 0)) - Math.abs((a.change_percent ?? 0)))
         .slice(0, 3)
         .map(s => s.symbol);
 
@@ -144,99 +148,168 @@ export class AnalyticsEngine {
     return trends.sort((a, b) => Math.abs(b.change_percent) - Math.abs(a.change_percent));
   }
 
-  // Phase 2: Portfolio Analytics Engine
   public analyzePortfolio(portfolio: Portfolio): PortfolioAnalysis {
     const stocks = portfolio.holdings.stocks;
     const mutualFunds = portfolio.holdings.mutual_funds || [];
 
     let totalDayChange = 0;
     let totalValue = 0;
+    let stockValue = 0;
+    let mfValue = 0;
     const sectorWeights: Record<string, number> = {};
 
     stocks.forEach(stock => {
-      // Day change based on weight and day change percent
-      const dayChange = stock.current_value * (stock.day_change_percent / 100);
+      const dayChange = stock.current_value * ((stock.day_change_percent || 0) / 100);
       totalDayChange += dayChange;
       totalValue += stock.current_value;
+      stockValue += stock.current_value;
 
-      sectorWeights[stock.sector] = (sectorWeights[stock.sector] || 0) + stock.weight_in_portfolio;
+      sectorWeights[stock.sector] =
+        (sectorWeights[stock.sector] || 0) + stock.weight_in_portfolio;
     });
 
     mutualFunds.forEach(mf => {
-      // For mutual funds, use the day_change_percent if available
-      const dayChangePercent = mf.day_change_percent || 0;
-      const dayChange = mf.current_value * (dayChangePercent / 100);
+      const normalizedDayChangePercent = mf.day_change_percent ?? 0;
+      const dayChange = mf.current_value * (normalizedDayChangePercent / 100);
       totalDayChange += dayChange;
       totalValue += mf.current_value;
+      mfValue += mf.current_value;
     });
 
     const totalDayChangePercent = totalValue > 0 ? (totalDayChange / totalValue) * 100 : 0;
 
     const concentrationRisks = Object.entries(sectorWeights)
-      .filter(([_, weight]) => weight > 40)
+      .filter(([, weight]) => weight > 40)
       .map(([sector]) => sector);
 
-    const allHoldings = [...stocks, ...mutualFunds.map(mf => ({ ...mf, sector: mf.category }))];
-    const topPerformers = allHoldings
-      .filter(h => h.day_change_percent !== undefined)
-      .sort((a, b) => (b.day_change_percent || 0) - (a.day_change_percent || 0))
+    const allHoldings: Array<{
+      symbol: string;
+      sector: string;
+      current_value: number;
+      day_change_percent: number;
+    }> = [
+      ...stocks.map(stock => ({
+        symbol: stock.symbol,
+        sector: stock.sector,
+        current_value: stock.current_value,
+        day_change_percent: stock.day_change_percent
+      })),
+      ...mutualFunds.map(mf => ({
+        symbol: mf.scheme_name,
+        sector: mf.category,
+        current_value: mf.current_value,
+        day_change_percent: mf.day_change_percent ?? 0
+      }))
+    ];
+
+    const topPerformers = [...allHoldings]
+      .sort((a, b) => b.day_change_percent - a.day_change_percent)
       .slice(0, 3);
 
-    const worstPerformers = allHoldings
-      .filter(h => h.day_change_percent !== undefined)
-      .sort((a, b) => (a.day_change_percent || 0) - (b.day_change_percent || 0))
+    const worstPerformers = [...allHoldings]
+      .sort((a, b) => a.day_change_percent - b.day_change_percent)
       .slice(0, 3);
 
     return {
       total_day_change: totalDayChange,
       total_day_change_percent: totalDayChangePercent,
       sector_allocation: sectorWeights,
+      asset_type_allocation: {
+        DIRECT_STOCKS: totalValue > 0 ? Number(((stockValue / totalValue) * 100).toFixed(2)) : 0,
+        MUTUAL_FUNDS: totalValue > 0 ? Number(((mfValue / totalValue) * 100).toFixed(2)) : 0
+      },
       concentration_risks: concentrationRisks,
       top_performers: topPerformers,
       worst_performers: worstPerformers
     };
   }
 
-  // Phase 3: Autonomous Reasoning
   public getRelevantNews(portfolio: Portfolio, news: NewsArticle[]): NewsArticle[] {
     const userSectors = new Set(portfolio.holdings.stocks.map(s => s.sector));
     const userStocks = new Set(portfolio.holdings.stocks.map(s => s.symbol));
 
-    return news.filter(article => {
-      const sectorMatch = article.entities.sectors.some(sector => userSectors.has(sector));
-      const stockMatch = article.entities.stocks.some(stock => userStocks.has(stock));
-      const marketWide = article.scope === 'MARKET_WIDE';
-      return sectorMatch || stockMatch || marketWide;
-    }).sort((a, b) => {
-      // Prioritize by impact level and relevance
-      const impactScore = { HIGH: 3, MEDIUM: 2, LOW: 1 };
-      return (impactScore[b.impact_level as keyof typeof impactScore] || 0) -
-             (impactScore[a.impact_level as keyof typeof impactScore] || 0);
-    });
+    const impactScore = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+
+    return news
+      .filter(article => {
+        const sectorMatch = article.entities.sectors.some(sector => userSectors.has(sector));
+        const stockMatch = article.entities.stocks.some(stock => userStocks.has(stock));
+        const marketWide = article.scope === 'MARKET_WIDE';
+        return sectorMatch || stockMatch || marketWide;
+      })
+      .sort((a, b) => {
+        return (
+          (impactScore[b.impact_level as keyof typeof impactScore] || 0) -
+          (impactScore[a.impact_level as keyof typeof impactScore] || 0)
+        );
+      });
   }
 
-  public generateCausalLinks(portfolio: Portfolio, news: NewsArticle[], sectorTrends: SectorTrend[]): CausalLink[] {
+  public generateCausalLinks(
+    portfolio: Portfolio,
+    news: NewsArticle[],
+    sectorTrends: SectorTrend[]
+  ): CausalLink[] {
     const links: CausalLink[] = [];
-    const portfolioSectors = new Set(portfolio.holdings.stocks.map(s => s.sector));
+
+    const sectorExposure = new Map<string, number>();
+    portfolio.holdings.stocks.forEach(stock => {
+      sectorExposure.set(
+        stock.sector,
+        (sectorExposure.get(stock.sector) || 0) + stock.weight_in_portfolio
+      );
+    });
 
     news.forEach(article => {
       article.entities.sectors.forEach(sector => {
-        if (portfolioSectors.has(sector)) {
-          const sectorTrend = sectorTrends.find(t => t.sector === sector);
-          const impact = sectorTrend ? Math.abs(sectorTrend.change_percent) * (article.sentiment_score || 0) : 0;
-
-          links.push({
-            news_id: article.id,
-            sector,
-            impact,
-            explanation: `${article.headline} affecting ${sector} sector`,
-            confidence: Math.abs(article.sentiment_score || 0)
-          });
+        if (!sectorExposure.has(sector)) {
+          return;
         }
+
+        const exposure = sectorExposure.get(sector) || 0;
+        const sectorTrend = sectorTrends.find(t => t.sector === sector);
+        const sectorChange = sectorTrend?.change_percent || 0;
+        const sentimentScore = article.sentiment_score || 0;
+
+        const weightedImpact = (sectorChange * sentimentScore * exposure) / 100;
+        const sentimentDirectionMismatch =
+          (sentimentScore > 0 && sectorChange < 0) || (sentimentScore < 0 && sectorChange > 0);
+
+        const relatedHoldings = portfolio.holdings.stocks
+          .filter(stock => stock.sector === sector)
+          .map(stock => stock.symbol);
+
+        let ambiguityNote: string | undefined;
+
+        if (article.conflict_flag && article.conflict_explanation) {
+          ambiguityNote = article.conflict_explanation;
+        } else if (sentimentDirectionMismatch) {
+          ambiguityNote = 'News sentiment and price direction are misaligned; near-term price action may reflect broader market pressure.';
+        }
+
+        const confidenceBase = Math.min(Math.abs(sentimentScore) + Math.abs(sectorChange) / 5, 1);
+        const confidence = Number((ambiguityNote ? confidenceBase * 0.8 : confidenceBase).toFixed(2));
+
+        const link: CausalLink = {
+          news_id: article.id,
+          sector,
+          impact: Number(weightedImpact.toFixed(3)),
+          explanation: `${article.headline} influenced ${sector} (${exposure.toFixed(2)}% portfolio exposure).`,
+          confidence,
+          related_holdings: relatedHoldings
+        };
+
+        if (ambiguityNote) {
+          link.ambiguity_note = ambiguityNote;
+        }
+
+        links.push(link);
       });
     });
 
-    return links.sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact));
+    return links
+      .sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact))
+      .slice(0, 8);
   }
 
   public generateAgentBriefing(portfolioId: string): AgentBriefing {
@@ -246,65 +319,82 @@ export class AnalyticsEngine {
     const analysis = this.analyzePortfolio(portfolio);
     const relevantNews = this.getRelevantNews(portfolio, news);
     const causalLinks = this.generateCausalLinks(portfolio, relevantNews, sectorTrends);
-
-    // Generate summary
     const marketSentiment = this.analyzeMarketSentiment();
-    const dayChangeStr = analysis.total_day_change_percent >= 0 ?
-      `gained ${analysis.total_day_change_percent.toFixed(2)}%` :
-      `fell ${Math.abs(analysis.total_day_change_percent).toFixed(2)}%`;
+
+    const dayChangeStr =
+      analysis.total_day_change_percent >= 0
+        ? `gained ${analysis.total_day_change_percent.toFixed(2)}%`
+        : `fell ${Math.abs(analysis.total_day_change_percent).toFixed(2)}%`;
 
     let summary = `${portfolio.user_name}'s portfolio ${dayChangeStr} today. `;
 
     if (marketSentiment.overall === 'BEARISH') {
-      summary += `The market sentiment is bearish, primarily driven by ${marketSentiment.key_drivers.join(', ')}. `;
+      summary += `Market sentiment is bearish, driven by ${marketSentiment.key_drivers.join(', ')}. `;
     } else if (marketSentiment.overall === 'BULLISH') {
-      summary += `The market sentiment is bullish, supported by ${marketSentiment.key_drivers.join(', ')}. `;
+      summary += `Market sentiment is bullish, supported by ${marketSentiment.key_drivers.join(', ')}. `;
+    } else {
+      summary += 'Market sentiment is neutral today. ';
     }
 
     if (analysis.concentration_risks.length > 0) {
-      summary += `Concentration risk detected in: ${analysis.concentration_risks.join(', ')}. `;
+      summary += `Concentration risk detected in ${analysis.concentration_risks.join(', ')}. `;
     }
 
-    // Key insights
     const keyInsights: string[] = [];
-    if (causalLinks.length > 0) {
-      const topLink = causalLinks[0];
-      if (topLink) {
-        keyInsights.push(`Primary impact from ${topLink.sector} sector due to related news.`);
-      }
+
+    if (causalLinks[0]) {
+      keyInsights.push(`Primary impact comes from ${causalLinks[0].sector} sector-linked news.`);
     }
 
     analysis.top_performers.forEach(performer => {
-      if (performer.day_change_percent > 0) {
-        const name = 'symbol' in performer ? performer.symbol : performer.scheme_name;
-        keyInsights.push(`${name} was a top performer with +${performer.day_change_percent.toFixed(2)}% change.`);
+      if ((performer.day_change_percent || 0) > 0) {
+        keyInsights.push(
+          `${performer.symbol} was a top performer with +${performer.day_change_percent.toFixed(2)}%.`
+        );
       }
     });
 
     analysis.worst_performers.forEach(performer => {
-      if (performer.day_change_percent < 0) {
-        const name = 'symbol' in performer ? performer.symbol : performer.scheme_name;
-        keyInsights.push(`${name} was a laggard with ${performer.day_change_percent.toFixed(2)}% change.`);
+      if ((performer.day_change_percent || 0) < 0) {
+        keyInsights.push(
+          `${performer.symbol} lagged with ${performer.day_change_percent.toFixed(2)}%.`
+        );
       }
     });
 
-    // Recommendations
-    const recommendations: string[] = [];
-    if (analysis.concentration_risks.length > 0) {
-      recommendations.push('Consider diversifying to reduce concentration risk.');
-    }
-    if (marketSentiment.overall === 'BEARISH') {
-      recommendations.push('Monitor defensive sectors for potential opportunities.');
+    const hasAmbiguity = causalLinks.some(link => Boolean(link.ambiguity_note));
+    if (hasAmbiguity) {
+      keyInsights.push('Some signals are conflicting; headline sentiment does not fully explain short-term price moves.');
     }
 
-    // Simple reasoning quality score (placeholder)
-    const reasoningQualityScore = Math.min(causalLinks.length * 0.1 + keyInsights.length * 0.05, 1);
+    const recommendations: string[] = [];
+
+    if (analysis.concentration_risks.length > 0) {
+      recommendations.push('Consider reducing single-sector concentration and broadening exposure.');
+    }
+
+    if (marketSentiment.overall === 'BEARISH') {
+      recommendations.push('Review downside-sensitive holdings and keep defensive allocation disciplined.');
+    }
+
+    if (hasAmbiguity) {
+      recommendations.push('For conflicting signals, track follow-up data points before making large allocation changes.');
+    }
+
+    if (recommendations.length === 0) {
+      recommendations.push('Maintain allocation discipline and continue monitoring sector-linked catalysts.');
+    }
+
+    const reasoningQualityScore = Math.min(
+      causalLinks.length * 0.12 + keyInsights.length * 0.06,
+      1
+    );
 
     return {
       portfolio_id: portfolioId,
-      summary,
-      key_insights: keyInsights,
-      causal_links: causalLinks.slice(0, 5), // Top 5
+      summary: summary.trim(),
+      key_insights: keyInsights.slice(0, 6),
+      causal_links: causalLinks.slice(0, 5),
       recommendations,
       confidence_score: marketSentiment.confidence,
       reasoning_quality_score: reasoningQualityScore

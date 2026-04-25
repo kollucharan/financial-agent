@@ -5,14 +5,13 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/api.js",
     "dev": "tsx src/index.ts",
     "cli": "tsx src/cli.ts",
     "api": "tsx src/api.ts",
-    "frontend": "tsx src/frontend.ts",
-    "web": "npm run api & npm run frontend",
+    "web": "tsx src/api.ts",
     "demo": "npm run build && node dist/cli.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "tsx --test \"src/**/*.test.ts\""
   },
   "keywords": [],
   "author": "",

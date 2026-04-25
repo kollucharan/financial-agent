@@ -1,38 +1,48 @@
+#!/usr/bin/env node
+
 import { AdvisorAgent } from './agent/AdvisorAgent.js';
 
 async function main() {
-  const portfolioId = process.argv[2] || 'PORTFOLIO_002';
-  console.log(`\nAnalyzing ${portfolioId}...\n`);
-
+  const portfolioId = process.argv[2] || 'PORTFOLIO_001';
   const agent = new AdvisorAgent();
-  const briefing = await agent.generateBriefing(portfolioId);
 
-  console.log("=== FINANCIAL ADVISOR BRIEFING ===\n");
-  console.log(`Portfolio: ${briefing.portfolio_id}\n`);
-  console.log(`Summary:\n${briefing.summary}\n`);
+  try {
+    const briefing = await agent.generateBriefing(portfolioId);
 
-  if (briefing.key_insights.length > 0) {
-    console.log("Key Insights:");
-    briefing.key_insights.forEach(insight => console.log(`• ${insight}`));
-    console.log();
-  }
+    console.log('\n=== FINANCIAL ADVISOR BRIEFING ===');
+    console.log(`\nPortfolio: ${briefing.portfolio_id}`);
+    console.log(`\nSummary:\n${briefing.summary}`);
 
-  if (briefing.causal_links.length > 0) {
-    console.log("Causal Links:");
-    briefing.causal_links.slice(0, 3).forEach(link => {
-      console.log(`• ${link.sector}: ${link.explanation} (Impact: ${link.impact.toFixed(2)}, Confidence: ${(link.confidence * 100).toFixed(1)}%)`);
+    console.log('\nKey Insights:');
+    briefing.key_insights.forEach(item => {
+      console.log(`- ${item}`);
     });
-    console.log();
-  }
 
-  if (briefing.recommendations.length > 0) {
-    console.log("Recommendations:");
-    briefing.recommendations.forEach(rec => console.log(`• ${rec}`));
-    console.log();
-  }
+    console.log('\nCausal Links:');
+    briefing.causal_links.forEach(link => {
+      console.log(
+        `- ${link.sector}: ${link.explanation} | impact ${link.impact.toFixed(2)} | confidence ${(link.confidence * 100).toFixed(1)}%`
+      );
+      if (link.ambiguity_note) {
+        console.log(`  ambiguity: ${link.ambiguity_note}`);
+      }
+    });
 
-  console.log(`Confidence Score: ${(briefing.confidence_score * 100).toFixed(1)}%`);
-  console.log(`Reasoning Quality Score: ${(briefing.reasoning_quality_score * 10).toFixed(1)}/10`);
+    console.log('\nRecommendations:');
+    briefing.recommendations.forEach(item => {
+      console.log(`- ${item}`);
+    });
+
+    console.log(`\nConfidence Score: ${(briefing.confidence_score * 100).toFixed(1)}%`);
+    console.log(`Reasoning Quality Score: ${(briefing.reasoning_quality_score * 10).toFixed(1)}/10`);
+    if (briefing.reasoning_evaluation) {
+      console.log(`Evaluation Rationale: ${briefing.reasoning_evaluation.rationale}`);
+    }
+    console.log('');
+  } catch (error) {
+    console.error('Error generating briefing:', error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 }
 
-main().catch(console.error);
+main();
