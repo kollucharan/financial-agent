@@ -161,11 +161,13 @@
       html,body{
         height:auto;
         min-height:100%;
-        overflow:auto;
+        overflow-y:auto;
+        overflow-x:hidden;
       }
-      body{flex-direction:column}
       body{
+        flex-direction:column;
         min-height:100dvh;
+        overflow-y:auto;
       }
       .sidebar{
         width:100%;
@@ -173,8 +175,10 @@
         border-bottom:1px solid var(--border);
       }
       .main{
-        flex:1;
+        flex:1 1 auto;
         min-height:0;
+        display:block;
+        overflow:visible;
       }
       .sb-head{
         padding:12px 14px 10px;
@@ -194,6 +198,7 @@
         gap:8px;
         overflow-x:auto;
         overflow-y:hidden;
+        touch-action:pan-x;
         padding:0 10px 10px;
       }
       .p-card{
@@ -224,7 +229,17 @@
         padding:14px 12px 10px;
       }
       .chat-body{
-        overscroll-behavior:contain;
+        flex:none;
+        min-height:auto;
+        overflow:visible;
+        -webkit-overflow-scrolling:touch;
+        touch-action:pan-y;
+        overscroll-behavior:auto;
+      }
+      .composer{
+        position:sticky;
+        bottom:0;
+        z-index:15;
       }
       .empty{
         margin:24px auto 0;
@@ -243,6 +258,22 @@
       .empty-sub{
         font-size:12px;
         line-height:1.5;
+      }
+      .starters{
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+        gap:8px;
+      }
+      .starter{
+        padding:10px 10px;
+        border-radius:10px;
+      }
+      .starter-label{
+        font-size:12px;
+        margin-bottom:2px;
+      }
+      .starter-sub{
+        font-size:10.5px;
+        line-height:1.35;
       }
       .msg-group{
         gap:8px;
@@ -302,6 +333,19 @@
       }
       .empty-title{
         font-size:18px;
+      }
+      .starters{
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+        gap:7px;
+      }
+      .starter{
+        padding:9px 8px;
+      }
+      .starter-label{
+        font-size:11.5px;
+      }
+      .starter-sub{
+        font-size:10px;
       }
     }
   </style>
