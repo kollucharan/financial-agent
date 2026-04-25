@@ -15,10 +15,11 @@ test('analyzeMarketSentiment returns bearish signal for current mock data', () =
 test('analyzePortfolio detects concentration risk for portfolio 2', () => {
   const portfolio = engine.getPortfolio('PORTFOLIO_002');
   const analysis = engine.analyzePortfolio(portfolio);
+  const directStocksWeight = analysis.asset_type_allocation.DIRECT_STOCKS ?? 0;
 
   assert.ok(analysis.total_day_change_percent < 0);
   assert.ok(analysis.concentration_risks.includes('BANKING'));
-  assert.ok(analysis.asset_type_allocation.DIRECT_STOCKS > 80);
+  assert.ok(directStocksWeight > 80);
 });
 
 test('getRelevantNews filters to portfolio exposures and market-wide items', () => {
@@ -48,6 +49,8 @@ test('generateCausalLinks returns ranked links with ambiguity notes for conflict
   const links = engine.generateCausalLinks(portfolio, relevantNews, sectorTrends);
 
   assert.ok(links.length > 0);
-  assert.ok(Math.abs(links[0].impact) >= Math.abs(links[links.length - 1].impact));
+  const firstImpact = links[0]?.impact ?? 0;
+  const lastImpact = links[links.length - 1]?.impact ?? 0;
+  assert.ok(Math.abs(firstImpact) >= Math.abs(lastImpact));
   assert.ok(links.some(link => Boolean(link.ambiguity_note)));
 });

@@ -127,6 +127,35 @@ npm run api
 Open:
 - `http://localhost:3000`
 
+## Deploy (Render Free)
+
+This repo is a single full-stack service (API + frontend together), so deploy as one web service.
+
+### Option A: Blueprint Deploy (recommended)
+
+1. Push repo to GitHub.
+2. In Render, choose `New +` -> `Blueprint`.
+3. Select this repository (it includes `render.yaml`).
+4. Set secret environment variables in Render:
+   - `OPENROUTER_API_KEY`
+   - `LANGFUSE_SECRET_KEY` (optional)
+   - `LANGFUSE_PUBLIC_KEY` (optional)
+5. Deploy.
+
+### Option B: Manual Web Service
+
+Use these settings:
+- Build command: `npm install && npm run build`
+- Start command: `npm run start`
+- Health check path: `/api/status`
+
+Set env vars:
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_MODEL=openrouter/free`
+- `LANGFUSE_SECRET_KEY` (optional)
+- `LANGFUSE_PUBLIC_KEY` (optional)
+- `LANGFUSE_BASE_URL=https://us.cloud.langfuse.com`
+
 ### Single Briefing (script mode)
 
 ```bash
