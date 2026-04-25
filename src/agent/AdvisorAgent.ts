@@ -107,8 +107,7 @@ Return only the enhanced summary paragraph.
 
     const generation = trace.generation({
       name: "briefing-enhancement",
-      model: "microsoft/wizardlm-2-8x22b",
-      prompt: prompt
+      model: "microsoft/wizardlm-2-8x22b"
     });
 
     const response = await this.ai.chat.completions.create({
@@ -120,12 +119,92 @@ Return only the enhanced summary paragraph.
 
     const enhancedSummary = response.choices[0]?.message?.content?.trim() || briefing.summary;
 
-    generation.end({ completion: enhancedSummary });
+    generation.end({ output: enhancedSummary });
 
     return {
       ...briefing,
       summary: enhancedSummary
     };
+  }
+
+  public async chatWithUser(
+    portfolioId: string,
+    userQuestion: string,
+    history: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = []
+  ): Promise<string> {
+    const trace = this.langfuse.trace({ name: 'Financial-Advisor-Chat', userId: portfolioId });
+    const portfolio = this.engine.getPortfolio(portfolioId);
+    const briefing = this.engine.generateAgentBriefing(portfolioId);
+    const marketSentiment = this.engine.analyzeMarketSentiment();
+    const sectorTrends = this.engine.getSectorTrends();
+    const relevantNews = this.engine.getRelevantNews(portfolio, this.engine.getNews()).slice(0, 5);
+
+    const context = `Portfolio Owner: ${portfolio.user_name}\nPortfolio Type: ${portfolio.portfolio_type}\nRisk Profile: ${portfolio.risk_profile}\nInvestment Horizon: ${portfolio.investment_horizon}\nCurrent Value: ₹${portfolio.current_value.toLocaleString()}\nOverall P&L: ${portfolio.overall_gain_loss_percent.toFixed(2)}%\n\nMarket Sentiment: ${marketSentiment.overall} (${(marketSentiment.confidence * 100).toFixed(1)}% confidence)\nKey Drivers: ${marketSentiment.key_drivers.join(', ') || 'N/A'}\n\nTop Insights: ${briefing.key_insights.join('; ') || 'N/A'}\nPrimary Causal Link: ${briefing.causal_links[0]?.explanation || 'N/A'}\nRecommendations: ${briefing.recommendations.join('; ') || 'N/A'}\n\nSector Trends:\n${sectorTrends.slice(0, 4).map(t => `- ${t.sector}: ${t.change_percent.toFixed(2)}% (${t.sentiment})`).join('\n')}\n\nRelevant News:\n${relevantNews.map(n => `- ${n.headline} (${n.scope}, ${n.sentiment})`).join('\n')}`;
+
+    const systemMessage = {
+      role: 'system' as const,
+      content: `You are an autonomous wealth advisor interacting with a user in a conversational, professional, and concise manner. Use the provided portfolio context to answer questions about performance, risk, causal drivers, and recommendations. If the user asks for a summary, deliver a brief high-level overview. Avoid speculative claims and stay grounded in the data.`
+    };
+
+    const assistantContext = {
+      role: 'system' as const,
+      content: `Context:\n${context}`
+    };
+
+    const messages = [systemMessage, assistantContext, ...history, { role: 'user' as const, content: userQuestion }];
+
+    if (!process.env.OPENROUTER_API_KEY) {
+      return this.generateFallbackChatResponse(briefing, userQuestion);
+    }
+
+    try {
+      const generation = trace.generation({
+        name: 'advisor-chat-response',
+        model: 'microsoft/wizardlm-2-8x22b'
+      });
+
+      const response = await this.ai.chat.completions.create({
+        model: 'microsoft/wizardlm-2-8x22b',
+        messages,
+        max_tokens: 300,
+        temperature: 0.7
+      });
+
+      const answer = response.choices[0]?.message?.content?.trim() || this.generateFallbackChatResponse(briefing, userQuestion);
+      generation.end({ output: answer });
+      await this.langfuse.flushAsync();
+      return answer;
+    } catch (error) {
+      console.warn('Chat response failed, using fallback answer:', error instanceof Error ? error.message : String(error));
+      return this.generateFallbackChatResponse(briefing, userQuestion);
+    }
+  }
+
+  private generateFallbackChatResponse(briefing: AgentBriefing, userQuestion: string): string {
+    const normalized = userQuestion.toLowerCase();
+    if (normalized.includes('why') || normalized.includes('cause') || normalized.includes('reason')) {
+      const primary = briefing.causal_links[0];
+      return primary
+        ? `${briefing.summary} The main driver was ${primary.explanation} with an impact score of ${primary.impact.toFixed(2)}.`
+        : `${briefing.summary} I recommend reviewing the most relevant news and sector trends for the portfolio.`;
+    }
+    if (normalized.includes('risk') || normalized.includes('concentration')) {
+      if (briefing.recommendations.length > 0) {
+        return `Risk observation: ${briefing.recommendations.join(' ')} ${briefing.summary}`;
+      }
+      return `${briefing.summary} No major concentration risk was detected in the current analysis.`;
+    }
+    if (normalized.includes('recommend')) {
+      return briefing.recommendations.length > 0
+        ? `Recommendations: ${briefing.recommendations.join(' ')} `
+          + `Overall, the portfolio is being impacted by the current market trend: ${briefing.summary}`
+        : `The portfolio is stable based on the current data. ${briefing.summary}`;
+    }
+    if (normalized.includes('summary') || normalized.includes('overview') || normalized.includes('status')) {
+      return briefing.summary;
+    }
+
+    return `${briefing.summary} If you want more detail, ask about risk, the cause of changes, or specific sector exposure.`;
   }
 
   private async selfEvaluate(briefing: AgentBriefing, trace: any): Promise<{ score: number; reason: string }> {
@@ -162,7 +241,7 @@ Return JSON: {"score": number, "reason": "brief explanation"}
 
     const responseText = response.choices[0]?.message?.content?.trim() || '{"score": 7, "reason": "Evaluation failed"}';
 
-    generation.end({ completion: responseText });
+    generation.end({ output: responseText });
 
     try {
       const evaluation = JSON.parse(responseText);

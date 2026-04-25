@@ -8,6 +8,9 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "cli": "tsx src/cli.ts",
+    "api": "tsx src/api.ts",
+    "frontend": "tsx src/frontend.ts",
+    "web": "npm run api & npm run frontend",
     "demo": "npm run build && node dist/cli.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -16,14 +19,18 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^25.6.0",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   },
   "dependencies": {
+    "cors": "^2.8.6",
     "dotenv": "^17.4.2",
+    "express": "^5.2.1",
     "langfuse": "^3.38.20",
-    "openai": "^6.34.0"
+    "openai": "^6.34.0",
+    "socket.io": "^4.8.3"
   }
 }

@@ -193,3 +193,19 @@ export interface AgentBriefing {
   confidence_score: number;
   reasoning_quality_score: number;
 }
+export interface AgentBriefing {
+  portfolio_id: string;
+  summary: string;
+  key_insights: string[];
+  causal_links: CausalLink[];
+  recommendations: string[];
+  confidence_score: number;
+  reasoning_quality_score: number;
+}
+export interface CausalLink {
+  news_id: string;
+  sector: string;
+  impact: number;
+  explanation: string;
+  confidence: number;
+}

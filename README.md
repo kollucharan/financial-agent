@@ -126,18 +126,35 @@ npm run dev PORTFOLIO_001
 
 ## 💻 Usage
 
-### Interactive CLI (Recommended for Demo)
+### Web Chat Interface (ChatGPT-Style)
+
+**Industry Standard: Separate Frontend & Backend**
+
+```bash
+# Terminal 1: Start Backend API
+npm run api
+
+# Terminal 2: Start Frontend Server
+npm run frontend
+```
+
+Or run both with:
+```bash
+npm run web  # Runs both servers in parallel
+```
+
+- **Backend API:** http://localhost:5000 (handles chat logic)
+- **Frontend UI:** http://localhost:3000 (ChatGPT-like interface)
+
+This follows industry best practices with separate services for scalability and maintainability.
+
+### Interactive CLI (Terminal-Based)
 
 ```bash
 npm run cli
 ```
 
-Menu options:
-1. **Analyze Diversified Portfolio** - Balanced across sectors
-2. **Analyze Banking-Heavy Portfolio** - Sector-concentrated 
-3. **Analyze Conservative Portfolio** - MF-heavy, defensive
-4. **View All Analysis Results** - Quick overview of all portfolios
-5. **Exit**
+Terminal-based chat interface with conversational capabilities.
 
 ### Command Line
 
@@ -373,3 +390,15 @@ npm run cli
 - Quality scoring (0-10)
 - Confidence metrics
 - Error tracking
+
+## 📝 License
+
+MIT
+
+## 👤 Author
+
+Financial Advisor Agent Team
+
+---
+
+**Happy analyzing!** 📊 For questions or issues, check the troubleshooting section above.

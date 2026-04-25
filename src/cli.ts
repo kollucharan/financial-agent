@@ -19,17 +19,51 @@ function printHeader() {
   console.clear();
   console.log('\n╔════════════════════════════════════════════════════════════╗');
   console.log('║   Autonomous Financial Advisor Agent                       ║');
-  console.log('║   Intelligent portfolio analysis with causal reasoning     ║');
+  console.log('║   Chat with me about your portfolios and investments       ║');
   console.log('╚════════════════════════════════════════════════════════════╝\n');
 }
 
 function printMenu() {
-  console.log('\n📊 Available Portfolios:\n');
+  console.log('\n� Chat-Based Wealth Advisor Interface:\n');
   portfolios.forEach((p, i) => {
-    console.log(`  ${i + 1}. ${p.name}`);
+    console.log(`  ${i + 1}. Chat with advisor for ${p.name}`);
   });
   console.log(`  ${portfolios.length + 1}. View All Analysis Results`);
   console.log(`  ${portfolios.length + 2}. Exit\n`);
+}
+
+function ask(prompt: string): Promise<string> {
+  return new Promise(resolve => rl.question(prompt, resolve));
+}
+
+async function chatWithPortfolio(portfolioId: string) {
+  const agent = new AdvisorAgent();
+  const selectedPortfolio = portfolios.find(p => p.id === portfolioId);
+  console.log(`\n👋 You are now chatting with the autonomous wealth advisor for ${selectedPortfolio?.name}.`);
+  console.log('Type your question, or enter "exit" to return to the main menu.\n');
+
+  const history: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
+
+  while (true) {
+    const userInput = (await ask('You: ')).trim();
+    if (!userInput) {
+      continue;
+    }
+    const lowered = userInput.toLowerCase();
+    if (lowered === 'exit' || lowered === 'back' || lowered === 'menu' || lowered === 'quit') {
+      console.log('\nReturning to the main menu...\n');
+      return;
+    }
+
+    try {
+      const assistantResponse = await agent.chatWithUser(portfolioId, userInput, history);
+      console.log(`\nAdvisor: ${assistantResponse}\n`);
+      history.push({ role: 'user', content: userInput });
+      history.push({ role: 'assistant', content: assistantResponse });
+    } catch (error) {
+      console.error('❌ Failed to generate answer:', error instanceof Error ? error.message : String(error));
+    }
+  }
 }
 
 async function analyzePortfolio(portfolioId: string) {
@@ -124,45 +158,72 @@ function viewAllResults() {
   }
 }
 
+function getPortfolioFromMessage(message: string): string | null {
+  const lower = message.toLowerCase();
+  if (lower.includes('diversified') || lower.includes('rahul') || lower.includes('portfolio 1')) {
+    return 'PORTFOLIO_001';
+  }
+  if (lower.includes('banking') || lower.includes('priya') || lower.includes('portfolio 2')) {
+    return 'PORTFOLIO_002';
+  }
+  if (lower.includes('conservative') || lower.includes('arun') || lower.includes('portfolio 3')) {
+    return 'PORTFOLIO_003';
+  }
+  return null;
+}
+
 async function main() {
   printHeader();
-  
-  const askQuestion = () => {
-    printMenu();
-    rl.question('👉 Select an option (1-5): ', async (answer: string) => {
-      const choice = parseInt(answer);
-      
-      if (choice >= 1 && choice <= portfolios.length) {
-        const selectedPortfolio = portfolios[choice - 1];
-        if (selectedPortfolio) {
-          await analyzePortfolio(selectedPortfolio.id);
-        } else {
-          console.log('\n❌ Invalid portfolio selection.');
-          askQuestion();
-          return;
-        }
-        rl.question('\n📌 Press Enter to continue...', () => {
-          printHeader();
-          askQuestion();
-        });
-      } else if (choice === portfolios.length + 1) {
-        viewAllResults();
-        rl.question('\n📌 Press Enter to continue...', () => {
-          printHeader();
-          askQuestion();
-        });
-      } else if (choice === portfolios.length + 2) {
-        console.log('\n👋 Thank you for using Financial Advisor Agent!\n');
-        rl.close();
-        process.exit(0);
+  console.log('👋 Welcome to your personal wealth advisor!');
+  console.log('You can ask me questions about your portfolios, market trends, or investment advice.');
+  console.log('Mention a portfolio by name (e.g., "diversified portfolio", "banking portfolio") to focus the conversation.');
+  console.log('Type "exit" or "quit" to end the session.\n');
+
+  const agent = new AdvisorAgent();
+  const history: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
+  let currentPortfolioId: string | null = null;
+
+  while (true) {
+    const userInput = (await ask('You: ')).trim();
+    if (!userInput) {
+      continue;
+    }
+    const lowered = userInput.toLowerCase();
+    if (lowered === 'exit' || lowered === 'quit' || lowered === 'bye') {
+      console.log('\n👋 Thank you for chatting! Have a great day with your investments.\n');
+      rl.close();
+      process.exit(0);
+    }
+
+    // Check if user is switching portfolios
+    const newPortfolioId = getPortfolioFromMessage(userInput);
+    if (newPortfolioId && newPortfolioId !== currentPortfolioId) {
+      currentPortfolioId = newPortfolioId;
+      const portfolio = portfolios.find(p => p.id === currentPortfolioId);
+      console.log(`\n🔄 Switching context to ${portfolio?.name}\n`);
+      history.push({ role: 'system', content: `Switched to portfolio ${currentPortfolioId}` });
+    }
+
+    try {
+      let response: string;
+      if (currentPortfolioId) {
+        response = await agent.chatWithUser(currentPortfolioId, userInput, history);
       } else {
-        console.log('\n❌ Invalid option. Please try again.');
-        askQuestion();
+        // General response without portfolio context
+        response = await agent.chatWithUser('PORTFOLIO_001', userInput, history); // Default to first portfolio
       }
-    });
-  };
-  
-  askQuestion();
+      console.log(`Advisor: ${response}\n`);
+      history.push({ role: 'user', content: userInput });
+      history.push({ role: 'assistant', content: response });
+
+      // Keep history manageable
+      if (history.length > 20) {
+        history.splice(0, 2); // Remove oldest pair
+      }
+    } catch (error) {
+      console.error('❌ Sorry, I encountered an error processing your request:', error instanceof Error ? error.message : String(error));
+    }
+  }
 }
 
 main().catch(console.error);
